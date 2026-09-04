@@ -1,0 +1,21 @@
+# --- secrets -------------------------------------------------
+.env
+
+# --- python artefacts ---------------------------------------
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# --- agent runtime outputs ----------------------------------
+logs/*
+!logs/.gitkeep
+outbox/*
+!outbox/.gitkeep
+resumes/*
+!resumes/.gitkeep
+cover_letters/*
+!cover_letters/.gitkeep
+tracker.xlsx
+*.corrupt.xlsx

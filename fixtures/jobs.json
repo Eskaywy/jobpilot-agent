@@ -1,0 +1,29 @@
+[
+  {
+    "company": "Example Analytics Co",
+    "title": "Junior Data Analyst",
+    "description": "Example Analytics Co is hiring a Junior Data Analyst. Responsibilities: build Excel dashboards and Power BI reports, run SQL queries, reconcile financial data, and support KPI reporting. Requirements: advanced Excel (PivotTables, VLOOKUP), SQL basics, data cleaning, attention to detail, 2+ years of experience with data analysis and reporting. Send your resume to careers@example-analytics.com with a cover letter.",
+    "email": "careers@example-analytics.com",
+    "cover_letter_required": true,
+    "url": "https://example-analytics.com/careers/junior-data-analyst",
+    "location": "Remote"
+  },
+  {
+    "company": "Example Support Ltd",
+    "title": "Email Customer Service Representative",
+    "description": "Example Support Ltd seeks an Email Customer Service Representative. Duties: answering high-volume customer emails, CRM updates in Zendesk and Salesforce, conflict resolution, SLA compliance, and accurate data entry of case notes. Requirements: proven 90%+ CSAT record, 40+ emails per day, excellent written English. Email jobs@example-support-ltd.com to apply.",
+    "email": "jobs@example-support-ltd.com",
+    "cover_letter_required": false,
+    "url": "https://example-support-ltd.com/jobs/email-csr",
+    "location": "Remote"
+  },
+  {
+    "company": "Example Financial Group",
+    "title": "Financial Data Analyst",
+    "description": "Example Financial Group is looking for a Financial Data Analyst. You will prepare financial reports in Excel, reconcile accounts, build variance dashboards in Power BI, and support monthly close. Requirements: financial reporting experience, SQL, Excel PivotTables and VLOOKUP, data validation and reconciliation skills, attention to detail. Apply by email to talent@examplefinancialgroup.com.",
+    "email": "talent@examplefinancialgroup.com",
+    "cover_letter_required": false,
+    "url": "https://examplefinancialgroup.com/careers/fda",
+    "location": "Hybrid - Lagos"
+  }
+]

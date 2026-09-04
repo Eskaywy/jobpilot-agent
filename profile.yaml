@@ -1,0 +1,84 @@
+# =====================================================================
+# JobPilot candidate master profile
+# ---------------------------------------------------------------------
+# Source of truth: resumes/Amaechi_Kingsley_Resume.pdf. The resume
+# generator tailors content from here - it never invents facts.
+# Non-ASCII symbols (e.g. Naira sign) are avoided on purpose: ATS fonts
+# are ASCII-safe (NGN is used instead of the Naira sign).
+# =====================================================================
+
+contact:
+  name: "Amaechi Kingsley"
+  phone: "+234-8110246351"
+  email: "kamaechi235@gmail.com"
+  location: "Lagos, Nigeria"
+  linkedin: "linkedin.com/in/kingsleyamaechi001"
+
+summary: >-
+  Banking operations and support professional with 4+ years across ATM
+  management, digital banking and logistics. Increased transactions per
+  ATM terminal from 1,900 to 2,200 per month (lifting the bank's
+  industry ranking from 4th to 2nd), contributed to over NGN 200 million
+  in revenue in six months via NIP transfer VAS deployment, sustained
+  90-95% ATM network uptime, and cut mail processing time by 30% through
+  process streamlining. Data analytics lead experienced with Power BI,
+  Tableau and Excel dashboards for KPI tracking.
+
+skills:
+  - "Data Analytics Tools: Power BI, Tableau, Excel, Statistical Interpretation"
+  - "Data Visualization & Interactive KPI Dashboards"
+  - "Microsoft Office Suite (PowerPoint, Word) & Google Workspace"
+  - "Technical Report Writing & Stakeholder Presentation"
+  - "AI Implementation"
+  - "Digital Banking Solutions & ATM/POS Support"
+  - "Operational Efficiency & Process Streamlining"
+  - "Strategic Planning & Problem Solving"
+  - "Vendor Coordination & Procurement Documentation"
+  - "Attention to Detail"
+
+experience:
+  - title: "ATM Support / Business Officer"
+    company: "Polaris Bank Limited"
+    location: "Lagos, Nigeria"
+    period: "Nov 2022 - Present"
+    bullets:
+      - "Optimized ATM performance, increasing transaction count per terminal from 1,900 to 2,200 per month and improving the bank's industry ranking from 4th to 2nd."
+      - "Spearheaded the deployment of NIP transfer VAS on ATMs, enhancing customer transaction capabilities and contributing to over NGN 200 million in revenue in six months."
+      - "Managed and strategized ATM deployments, ensuring 90-95% uptime across the bank's network, reducing downtime and enhancing customer experience."
+
+  - title: "Data Analyst Lead (Volunteer)"
+    company: "Propelio Real Estate Platform"
+    location: "Lagos, Nigeria"
+    period: "Jul 2024 - Nov 2024"
+    bullets:
+      - "Designed and implemented a user-centric platform, conducting in-depth surveys and data visualizations to prioritize educational content and flexible payment features."
+      - "Developed a blockchain-powered solution, enhancing trust and transparency in real estate transactions and increasing platform credibility and adoption."
+      - "Created an interactive data dashboard monitoring real-time KPIs such as user engagement and transaction security to enable data-driven decision-making."
+
+  - title: "Logistics & Procurement Officer"
+    company: "Ecobank Nig PLC"
+    location: "Lagos, Nigeria"
+    period: "Aug 2021 - Nov 2022"
+    bullets:
+      - "Streamlined mail tracking and dispatch processes, reducing processing time by 30% and improving efficiency across multiple departments."
+      - "Automated courier service payments, ensuring timely transactions and reducing manual processing errors by 40%."
+      - "Enhanced vendor coordination and documentation, improving delivery tracking accuracy and reducing lost or delayed mail incidents."
+
+  - title: "ATM & POS Support (Intern)"
+    company: "Ecobank Nig PLC"
+    location: "Lagos, Nigeria"
+    period: "Jan 2020 - Jan 2021"
+    bullets:
+      - "Resolved critical ATM/POS issues across 200+ branches, reducing downtime and improving transaction efficiency."
+      - "Implemented a fault-tracking system, reducing response times for ATM repairs and increasing machine availability by 15%."
+      - "Supported backend software troubleshooting, ensuring seamless ATM operations and enhancing customer transaction success rates."
+
+education:
+  - degree: "BSc, Computer Science"
+    school: "National Open University, Victoria Island, Nigeria"
+    year: "Feb 2025 - Present"
+    details: "Coursework: Data Structures and Algorithms, Software Engineering, Database Management Systems, Computer Networks, Operating Systems, Artificial Intelligence, Cybersecurity Foundations"
+  - degree: "National Diploma, Computer Science (Upper Credit)"
+    school: "Lagos State Polytechnic, Ikorodu, Nigeria"
+    year: "Aug 2016 - Sept 2019"
+    details: "Coursework: Introduction to Programming, System Analysis and Design, Discrete Mathematics, Web Development, Computer Hardware Maintenance, Statistics for Computing"

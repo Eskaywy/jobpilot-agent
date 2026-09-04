@@ -1,0 +1,1 @@
+Dry-run e-mail renders (never sent) are written here as timestamped .txt files. Verify these before setting DRY_RUN=false.

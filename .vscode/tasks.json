@@ -1,0 +1,47 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Agent: Run Hourly Cycle Loop",
+      "detail": "Runs one pipeline cycle immediately, then repeats hourly (DRY_RUN safe). Stop with Ctrl+C or the trash icon in the terminal panel.",
+      "type": "shell",
+      "command": "python",
+      "args": ["main.py"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Agent: Run Once Now",
+      "detail": "Single pipeline cycle, then exit - ideal for testing changes.",
+      "type": "shell",
+      "command": "python",
+      "args": ["main.py", "--once"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Agent: Install Dependencies",
+      "detail": "Creates/uses .venv and installs requirements.txt.",
+      "type": "shell",
+      "command": "python -m venv .venv; .venv\\Scripts\\python -m pip install --upgrade pip; .venv\\Scripts\\pip install -r requirements.txt",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
