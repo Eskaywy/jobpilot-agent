@@ -157,6 +157,44 @@ def _parse_listing(raw_title: str, raw_company: str, raw_jd: str,
     )
 
 
+def _append_parsed(listings: List[JobListing], *, title: str, company: str,
+                   jd: str, source: str, url: str = "", location: str = "",
+                   posted_at: str = "") -> None:
+    """Parse one raw API hit and append it to *listings* when it is a target role.
+
+    Providers always normalise through this one path instead of copy-pasting
+    the ``_parse_listing`` plus append boilerplate; hits that are not a
+    target role are simply skipped (fail soft).
+    """
+    parsed = _parse_listing(
+        raw_title=title, raw_company=company, raw_jd=jd,
+        source=source, url=url, location=location, posted_at=posted_at,
+    )
+    if parsed:
+        listings.append(parsed)
+
+
+def _first_apply_link(item: Dict[str, object]) -> str:
+    """Return the first usable ``link`` from a SerpApi ``apply_options`` list.
+
+    A posting can expose several apply channels and the first entry is not
+    guaranteed to carry a URL (it may be an "on-site apply" stub), so the
+    whole list is scanned instead of assuming index 0. Tolerates
+    ``apply_options`` being missing, ``null`` or a non-list, mirroring the
+    module's fail-soft philosophy.
+    """
+    apply_options = item.get("apply_options")
+    if not isinstance(apply_options, list):
+        return ""
+    for option in apply_options:
+        if not isinstance(option, dict):
+            continue
+        link = option.get("link")
+        if link:
+            return str(link)
+    return ""
+
+
 class JobProvider(ABC):
     """Contract for one job data source."""
 
@@ -167,17 +205,31 @@ class JobProvider(ABC):
         """Return all target-role listings visible at this source."""
 
     def _get_json(self, url: str) -> Optional[object]:
-        """GET *url* and parse JSON; failures return None (fail soft)."""
+        """GET *url* and parse JSON; failures return None (fail soft).
+
+        Subclasses that must abort the cycle on a specific HTTP status can
+        override :meth:`_check_response` to raise a custom exception (see
+        :class:`AdzunaProvider`, which stops on 429/403).
+        """
         try:
             response = requests.get(url, timeout=self.timeout, headers={
                 "User-Agent": "JobPilotAgent/1.0 (+personal job search)",
                 "Accept": "application/json",
             })
+            self._check_response(response)
             response.raise_for_status()
             return response.json()
         except (requests.RequestException, json.JSONDecodeError, ValueError) as exc:
             log.warning("[%s] fetch failed for %s: %s", self.name, url, exc)
             return None
+
+    def _check_response(self, response: requests.Response) -> None:
+        """Hook for providers treating specific HTTP statuses as fatal.
+
+        The default accepts every response; a subclass raises its own
+        exception here. It runs before ``raise_for_status`` so fatal non-2xx
+        statuses (e.g. Adzuna 429/403 quota) take precedence.
+        """
 
 
 class ArbeitnowProvider(JobProvider):
@@ -215,18 +267,18 @@ class ArbeitnowProvider(JobProvider):
             payload = self._get_json(url)
             if not payload:
                 break
-            for item in payload.get("data", []):
-                parsed = _parse_listing(
-                    raw_title=item.get("title", ""),
-                    raw_company=item.get("company_name", ""),
-                    raw_jd=item.get("description", ""),
+            # "or []" also copes with a null "data" key from a partial source.
+            for item in payload.get("data") or []:
+                _append_parsed(
+                    listings,
+                    title=item.get("title", ""),
+                    company=item.get("company_name", ""),
+                    jd=item.get("description", ""),
                     source=self.name,
                     url=item.get("url", ""),
                     location=item.get("location", ""),
                     posted_at=str(item.get("created_at", "")),
                 )
-                if parsed:
-                    listings.append(parsed)
             url = (payload.get("links") or {}).get("next") or None
         return listings
 
@@ -251,18 +303,18 @@ class RemotiveProvider(JobProvider):
                 f"{self.endpoint}?search={requests.utils.quote(term)}")
             if not payload:
                 continue
-            for item in payload.get("jobs", []):
-                parsed = _parse_listing(
-                    raw_title=item.get("title", ""),
-                    raw_company=item.get("company_name", ""),
-                    raw_jd=item.get("description", ""),
+            # "or []" also copes with a null "jobs" key from a partial source.
+            for item in payload.get("jobs") or []:
+                _append_parsed(
+                    listings,
+                    title=item.get("title", ""),
+                    company=item.get("company_name", ""),
+                    jd=item.get("description", ""),
                     source=self.name,
                     url=item.get("url", ""),
                     location=item.get("candidate_required_location", ""),
                     posted_at=str(item.get("publication_date", "")),
                 )
-                if parsed:
-                    listings.append(parsed)
         return listings
 
 
@@ -305,24 +357,17 @@ class AdzunaProvider(JobProvider):
         self.pages = max(1, min(pages, 2))  # 2 pages/cycle max, quota-friendly
         self.results_per_page = min(results_per_page, 50)  # Adzuna hard cap
 
-    def _get_json(self, url: str) -> Optional[object]:
-        """GET *url*; 429/403 raises :class:`AdzunaQuotaExceeded`."""
-        try:
-            response = requests.get(url, timeout=self.timeout, headers={
-                "User-Agent": "JobPilotAgent/1.0 (+personal job search)",
-                "Accept": "application/json",
-            })
-            if response.status_code in (429, 403):
-                raise AdzunaQuotaExceeded(
-                    f"HTTP {response.status_code} from Adzuna - quota or "
-                    "rate limit hit; stopping Adzuna for this cycle")
-            response.raise_for_status()
-            return response.json()
-        except AdzunaQuotaExceeded:
-            raise
-        except (requests.RequestException, json.JSONDecodeError, ValueError) as exc:
-            log.warning("[%s] fetch failed for %s: %s", self.name, url, exc)
-            return None
+    def _check_response(self, response: requests.Response) -> None:
+        """Quota hook - 429/403 raises :class:`AdzunaQuotaExceeded`.
+
+        The base :meth:`JobProvider._get_json` calls this before
+        ``raise_for_status``; the exception unwinds to :meth:`fetch`, which
+        stops Adzuna for the rest of the cycle to save quota.
+        """
+        if response.status_code in (429, 403):
+            raise AdzunaQuotaExceeded(
+                f"HTTP {response.status_code} from Adzuna - quota or "
+                "rate limit hit; stopping Adzuna for this cycle")
 
     def fetch(self) -> List[JobListing]:
         listings: List[JobListing] = []
@@ -344,20 +389,20 @@ class AdzunaProvider(JobProvider):
                     return listings  # stop spending calls this cycle
                 if not payload:
                     break  # next page will not exist either
-                for item in payload.get("results", []):
-                    parsed = _parse_listing(
-                        raw_title=item.get("title", ""),
-                        raw_company=(item.get("company") or {}).get(
+                # "or []" also copes with a null "results" key from Adzuna.
+                for item in payload.get("results") or []:
+                    _append_parsed(
+                        listings,
+                        title=item.get("title", ""),
+                        company=(item.get("company") or {}).get(
                             "display_name", ""),
-                        raw_jd=item.get("description", ""),
+                        jd=item.get("description", ""),
                         source=self.name,
                         url=item.get("redirect_url", ""),
                         location=(item.get("location") or {}).get(
                             "display_name", ""),
                         posted_at=str(item.get("created", "")),
                     )
-                    if parsed:
-                        listings.append(parsed)
         return listings
 
 
@@ -428,26 +473,24 @@ class SerpApiProvider(JobProvider):
                 "api_key": self.api_key,
             })
             payload = self._get_json(f"{self.endpoint}?{query}")
-            if not payload:
+            if not isinstance(payload, dict):
                 continue
-            for item in payload.get("jobs_results", []):
-                apply_options = item.get("apply_options") or []
-                url = ""
-                if apply_options and isinstance(apply_options[0], dict):
-                    url = str(apply_options[0].get("link", ""))
-                parsed = _parse_listing(
-                    raw_title=item.get("title", ""),
-                    raw_company=(item.get("company_name")
-                                 or item.get("via") or ""),
-                    raw_jd=item.get("description", ""),
+            # "or []" also covers a null "jobs_results" key; without it a null
+            # response would raise TypeError and abort this entire search term.
+            for item in payload.get("jobs_results") or []:
+                if not isinstance(item, dict):
+                    continue
+                _append_parsed(
+                    listings,
+                    title=item.get("title", ""),
+                    company=item.get("company_name") or item.get("via") or "",
+                    jd=item.get("description", ""),
                     source=self.name,
-                    url=url or str(item.get("share_link", "")),
+                    url=_first_apply_link(item) or str(item.get("share_link", "")),
                     location=item.get("location", ""),
                     posted_at=str((item.get("detected_extensions") or {})
                                   .get("posted_at", "")),
                 )
-                if parsed:
-                    listings.append(parsed)
         return listings
 
 
@@ -472,17 +515,16 @@ class FixtureProvider(JobProvider):
             return []
         listings: List[JobListing] = []
         for record in records:
-            parsed = _parse_listing(
-                raw_title=record.get("title", ""),
-                raw_company=record.get("company", ""),
-                raw_jd=record.get("description", ""),
+            _append_parsed(
+                listings,
+                title=record.get("title", ""),
+                company=record.get("company", ""),
+                jd=record.get("description", ""),
                 source=self.name,
                 url=record.get("url", ""),
                 location=record.get("location", ""),
                 posted_at=record.get("posted_at", ""),
             )
-            if parsed:
-                listings.append(parsed)
         return listings
 
 
