@@ -71,6 +71,7 @@ class Settings:
     # --- behaviour ------------------------------------------------------
     dry_run: bool = True
     match_threshold: float = 0.90
+    min_apply_score: float = 0.40
     max_applications_per_cycle: int = 5
     cycle_interval_minutes: int = 60
     request_timeout: int = 20
@@ -107,6 +108,7 @@ class Settings:
             smtp_password=os.getenv("SMTP_PASSWORD", ""),
             dry_run=_env_bool("DRY_RUN", True),
             match_threshold=_env_float("MATCH_THRESHOLD", 0.90),
+            min_apply_score=_env_float("MIN_APPLY_SCORE", 0.40),
             max_applications_per_cycle=_env_int("MAX_APPLICATIONS_PER_CYCLE", 5),
             cycle_interval_minutes=_env_int("CYCLE_INTERVAL_MINUTES", 60),
             request_timeout=_env_int("REQUEST_TIMEOUT", 20),
@@ -133,6 +135,11 @@ class Settings:
             warnings.append(
                 f"MATCH_THRESHOLD={self.match_threshold} outside (0, 1]; "
                 "clamping to 0.90."
+            )
+        if not (0.0 <= self.min_apply_score <= 1.0):
+            warnings.append(
+                f"MIN_APPLY_SCORE={self.min_apply_score} outside [0, 1]; "
+                "clamping to 0.40."
             )
         if not self.profile_path.exists():
             warnings.append(

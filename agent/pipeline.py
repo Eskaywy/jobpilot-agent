@@ -64,6 +64,23 @@ def process_listing(listing: JobListing, settings: Settings,
     # Step 2 - match existing resumes against the JD.
     match = matcher.find_best_match(listing.job_description)
 
+    # Minimum-score gate: never spend a generated resume or an outbound
+    # e-mail on a weak match. 0 disables the gate entirely.
+    min_score = settings.min_apply_score
+    if min_score > 0 and match.ats_match_score < min_score:
+        notes = (f"ATS {match.ats_match_score * 100:.1f}% below the "
+                 f"{min_score * 100:.0f}% apply minimum; e-mail available: "
+                 f"{listing.application_email}")
+        if match.missing_keywords:
+            notes += (". Gaps: "
+                      + ", ".join(match.missing_keywords[:5]))
+        tracker.append(build_tracker_row(listing, match, None, None,
+                                         "Skipped (Low Match)", notes))
+        log.info("Skipped '%s' @ %s - ATS %.1f%% below %.0f%% apply "
+                 "minimum", listing.role_title, listing.company,
+                 match.ats_match_score * 100, min_score * 100)
+        return False
+
     resume_path = match.resume_path
     if match.resume_path is not None and match.meets_threshold:
         # >= 90%: reuse the highest-scoring existing resume.

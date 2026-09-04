@@ -9,6 +9,10 @@ A Python agent that runs continuously inside VS Code. Every hour it:
    TF-IDF + cosine similarity and keyword coverage (ATS-style). If the best
    existing resume scores **>= 90%**, it is reused; otherwise a new tailored
    resume is generated.
+3. **Quality gate**: a listing is only applied to when its blended ATS score
+   meets `MIN_APPLY_SCORE` (default **0.40**). Below that it is recorded as
+   *Skipped (Low Match)* with the application e-mail kept in Notes - so no
+   weak-matching spray from your address, but nothing is lost either.
 3. **Generates** strictly **one-page** ATS PDF resumes with the mandated
    section order: Contact Header -> Professional Summary -> Key Skills &
    Competencies -> Professional Experience -> **Education last**, with
