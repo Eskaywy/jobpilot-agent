@@ -141,11 +141,20 @@ recorded in `tracker.xlsx` so every gate decision is auditable.
   `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` / `ADZUNA_COUNTRY` in `.env` - Nigeria
   itself is not covered; use e.g. `us`, `gb`, `za`), and **SerpApi Google
   Jobs** (key from <https://serpapi.com/manage-api-key> in
-  `SERPAPI_API_KEY`; free plan = 100 searches/month, one credit per search
-  term per cycle, engine `google_jobs` because plain `engine=google`
-  returns web results, not jobs). Some sites (LinkedIn, Indeed) forbid
-  scraping - add such sources only via compliant APIs. Fixtures provide
-  offline testing.
+  `SERPAPI_API_KEY`; free plan = 100 searches/month - the provider runs at
+  most once per `SERPAPI_MIN_INTERVAL_HOURS`, default 12; engine
+  `google_jobs` because plain `engine=google` returns web results, not
+  jobs). Some sites (LinkedIn, Indeed) forbid scraping - add such sources
+  only via compliant APIs. Fixtures provide offline testing.
+* **Quota protection is built in**: Adzuna fetches 1 page per search term
+  per cycle (~144 calls/day on hourly cycles vs the ~250/day free quota)
+  and hard-stops for the cycle on HTTP 429/403; SerpApi is interval-gated
+  by `logs/serpapi_last_run.txt`.
+* **Watchlist mode**: target-role listings that contain no application
+  e-mail (typical for Adzuna/Google Jobs) are saved to `tracker.xlsx` with
+  status **Watchlist** and their apply URL in the *Job URL* column, so you
+  can apply manually. They are recorded once (SHA-256 dedup) and never
+  block future e-mailable applications from the same board.
 * Listings whose JDs do not contain an application e-mail are skipped
   (logged) rather than guessed.
 * Auto-applying is subject to each board's terms and local law; DRY_RUN

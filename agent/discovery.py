@@ -17,8 +17,9 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 from urllib.parse import urlencode
 
 import requests
@@ -102,6 +103,34 @@ _COVER_LETTER_TRIGGERS = (
 
 def _cover_letter_required(jd_text: str) -> bool:
     return any(trigger in (jd_text or "").lower() for trigger in _COVER_LETTER_TRIGGERS)
+
+
+#: Tracker status for target-role listings that cannot be emailed automatically.
+WATCHLIST_STATUS = "Watchlist"
+
+
+def _watchlist_row(listing: "JobListing") -> Dict[str, object]:
+    """Build a tracker row that saves a no-email listing for manual applying.
+
+    Uses the same canonical column order as ``tracker.COLUMNS`` so the row
+    lands correctly in tracker.xlsx. Dedup works because the row carries the
+    same (company, role, empty email) triple the discovery engine uses.
+    """
+    return {
+        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Company": listing.company,
+        "Job Role": listing.role_title,
+        "Recipient Email": "",
+        "Keyword Match %": "",
+        "Cosine Similarity": "",
+        "Keyword Coverage": "",
+        "Resume Used": "",
+        "Cover Letter Generated": "No",
+        "Application Status": WATCHLIST_STATUS,
+        "Source": listing.source,
+        "Job URL": listing.url,
+        "Notes": "No application email in JD - apply manually via Job URL",
+    }
 
 
 def _parse_listing(raw_title: str, raw_company: str, raw_jd: str,
@@ -221,6 +250,10 @@ class RemotiveProvider(JobProvider):
         return listings
 
 
+class AdzunaQuotaExceeded(Exception):
+    """Raised when Adzuna answers 429/403 - quota or rate limit exhausted."""
+
+
 class AdzunaProvider(JobProvider):
     """https://developer.adzuna.com - free API, requires app_id + app_key.
 
@@ -230,9 +263,14 @@ class AdzunaProvider(JobProvider):
     ``title``, ``description``, ``redirect_url``, ``company.display_name``,
     ``location.display_name`` and ``created`` fields.
 
+    Rate-limit strategy (free tier ~250 calls/day): one page per search term
+    per cycle (6 calls/cycle = ~144/day on hourly cycles), and a hard stop
+    for the rest of the cycle when the API answers 429/403.
+
     Limitations (by design of the Adzuna service):
     * descriptions are truncated (~500 chars), which limits e-mail discovery
-      - listings without an application e-mail are skipped downstream;
+      - listings without an application e-mail are saved to the watchlist
+      tracker instead of being applied to automatically;
     * there is no "remote" flag and no direct application e-mail field;
     * Adzuna does not cover every country - set ADZUNA_COUNTRY to one of the
       supported codes (e.g. us, gb, za, in, ca, de, fr, nl, it, es, ...).
@@ -243,13 +281,32 @@ class AdzunaProvider(JobProvider):
     search_terms = RemotiveProvider.search_terms
 
     def __init__(self, app_id: str, app_key: str, country: str = "us",
-                 timeout: int = 20, pages: int = 2, results_per_page: int = 50):
+                 timeout: int = 20, pages: int = 1, results_per_page: int = 50):
         self.app_id = app_id
         self.app_key = app_key
         self.country = country
         self.timeout = timeout
-        self.pages = pages
+        self.pages = max(1, min(pages, 2))  # 2 pages/cycle max, quota-friendly
         self.results_per_page = min(results_per_page, 50)  # Adzuna hard cap
+
+    def _get_json(self, url: str) -> Optional[object]:
+        """GET *url*; 429/403 raises :class:`AdzunaQuotaExceeded`."""
+        try:
+            response = requests.get(url, timeout=self.timeout, headers={
+                "User-Agent": "JobPilotAgent/1.0 (+personal job search)",
+                "Accept": "application/json",
+            })
+            if response.status_code in (429, 403):
+                raise AdzunaQuotaExceeded(
+                    f"HTTP {response.status_code} from Adzuna - quota or "
+                    "rate limit hit; stopping Adzuna for this cycle")
+            response.raise_for_status()
+            return response.json()
+        except AdzunaQuotaExceeded:
+            raise
+        except (requests.RequestException, json.JSONDecodeError, ValueError) as exc:
+            log.warning("[%s] fetch failed for %s: %s", self.name, url, exc)
+            return None
 
     def fetch(self) -> List[JobListing]:
         listings: List[JobListing] = []
@@ -262,9 +319,13 @@ class AdzunaProvider(JobProvider):
                     "results_per_page": self.results_per_page,
                     "content-type": "application/json",
                 })
-                payload = self._get_json(
-                    f"{self.endpoint.format(country=self.country, page=page)}"
-                    f"?{query}")
+                try:
+                    payload = self._get_json(
+                        f"{self.endpoint.format(country=self.country, page=page)}"
+                        f"?{query}")
+                except AdzunaQuotaExceeded as exc:
+                    log.warning("[adzuna] %s", exc)
+                    return listings  # stop spending calls this cycle
                 if not payload:
                     break  # next page will not exist either
                 for item in payload.get("results", []):
@@ -291,8 +352,9 @@ class SerpApiProvider(JobProvider):
     ``https://serpapi.com/search`` endpoint - the plain ``engine=google``
     engine returns organic web results, not job postings). Requires a
     SERPAPI_API_KEY. Each request costs one search credit; the free plan
-    allows 100 searches/month, so this provider intentionally spends only
-    one request per search term per cycle (no pagination).
+    allows 100 searches/month, so this provider spends only one request per
+    search term and runs at most once per SERPAPI_MIN_INTERVAL_HOURS
+    (default 12, i.e. ~60 searches/month) via a state file.
 
     Response shape: ``jobs_results[]`` with ``title``, ``company_name``,
     ``location``, ``via``, a FULL (untruncated) ``description`` - which
@@ -305,12 +367,43 @@ class SerpApiProvider(JobProvider):
     search_terms = RemotiveProvider.search_terms
 
     def __init__(self, api_key: str, engine: str = "google_jobs",
-                 timeout: int = 20):
+                 timeout: int = 20, min_interval_hours: int = 12):
         self.api_key = api_key
         self.engine = engine
         self.timeout = timeout
+        self.min_interval_hours = max(1, min_interval_hours)
+        # State file lives next to the agent log; survives between cycles.
+        self._state_path = (Path(__file__).resolve().parent.parent
+                            / "logs" / "serpapi_last_run.txt")
+
+    def _interval_elapsed(self) -> bool:
+        """True when enough time has passed since the last SerpApi run.
+
+        The free plan grants 100 searches/month, so hourly cycles would burn
+        the quota in a single day. The provider therefore runs at most once
+        per ``min_interval_hours`` (default 12 -> ~60 searches/month).
+        """
+        try:
+            last = float(self._state_path.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            return True
+        elapsed_hours = (datetime.now().timestamp() - last) / 3600.0
+        return elapsed_hours >= self.min_interval_hours
+
+    def _mark_run(self) -> None:
+        try:
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            self._state_path.write_text(str(datetime.now().timestamp()),
+                                        encoding="utf-8")
+        except OSError as exc:
+            log.warning("[serpapi] could not write state file: %s", exc)
 
     def fetch(self) -> List[JobListing]:
+        if not self._interval_elapsed():
+            log.info("[serpapi] skipped - last run less than %d hour(s) ago "
+                     "(quota protection)", self.min_interval_hours)
+            return []
+        self._mark_run()
         listings: List[JobListing] = []
         for term in self.search_terms:
             query = urlencode({
@@ -383,6 +476,8 @@ class DiscoveryEngine:
     def __init__(self, settings: Settings, tracker=None):
         self.settings = settings
         self.tracker = tracker
+        self._watch_count = 0          # watchlist rows added this cycle
+        self.last_watch_count = 0      # survives the cycle for the summary
         self.providers: List[JobProvider] = [
             ArbeitnowProvider(timeout=settings.request_timeout),
             RemotiveProvider(timeout=settings.request_timeout),
@@ -402,6 +497,7 @@ class DiscoveryEngine:
                 api_key=settings.serpapi_api_key,
                 engine=settings.serpapi_engine,
                 timeout=settings.request_timeout,
+                min_interval_hours=settings.serpapi_min_interval_hours,
             ))
         else:
             log.info("SerpApi provider disabled - set SERPAPI_API_KEY in "
@@ -427,10 +523,25 @@ class DiscoveryEngine:
                 if key in seen_keys or key in seen_in_run:
                     continue
                 if not listing.application_email:
-                    log.info("Skipping '%s' @ %s - no application email found",
-                             listing.role_title, listing.company)
+                    # No e-mail -> cannot dispatch automatically. Save it to
+                    # the tracker as a watchlist entry (deduped forever) so
+                    # nothing valuable is silently dropped.
+                    if self.tracker is not None:
+                        self.tracker.append(_watchlist_row(listing))
+                        log.info("Watchlist: '%s' @ %s [%s] - no application "
+                                 "email; saved with apply URL (%d this cycle)",
+                                 listing.role_title, listing.company,
+                                 listing.source, self._watch_count + 1)
+                        self._watch_count += 1
+                    else:
+                        log.info("Skipping '%s' @ %s - no application email "
+                                 "found (no tracker to watchlist it)",
+                                 listing.role_title, listing.company)
+                    seen_in_run.add(key)
                     continue
                 seen_in_run.add(key)
                 aggregated.append(listing)
-        log.info("Discovery complete: %d new actionable listings", len(aggregated))
+        self.last_watch_count = self._watch_count
+        log.info("Discovery complete: %d new actionable listings, "
+                 "%d added to watchlist", len(aggregated), self._watch_count)
         return aggregated

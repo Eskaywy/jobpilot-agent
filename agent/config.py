@@ -82,6 +82,7 @@ class Settings:
     # --- SerpApi (Google Jobs) --------------------------------------------
     serpapi_api_key: str = ""
     serpapi_engine: str = "google_jobs"
+    serpapi_min_interval_hours: int = 12
     # --- paths ----------------------------------------------------------
     project_root: Path = PROJECT_ROOT
     resumes_dir: Path = PROJECT_ROOT / "resumes"
@@ -117,6 +118,7 @@ class Settings:
             serpapi_api_key=os.getenv("SERPAPI_API_KEY", "").strip(),
             serpapi_engine=(os.getenv("SERPAPI_ENGINE", "google_jobs").strip()
                             or "google_jobs"),
+            serpapi_min_interval_hours=_env_int("SERPAPI_MIN_INTERVAL_HOURS", 12),
         )
 
     def validate(self) -> List[str]:
