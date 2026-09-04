@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .config import Settings
-from .textutils import sanitize_filename
+from .textutils import extract_job_highlight, sanitize_filename
 
 log = logging.getLogger("jobpilot.dispatcher")
 
@@ -47,10 +47,23 @@ class EmailDispatcher:
 
     # ---------------------------------------------------------------- body
     def build_email_body(self, role: str, company: str,
-                         cover_letter_attached: bool) -> str:
-        """Brief, professional 3-4 sentence application e-mail."""
+                         cover_letter_attached: bool,
+                         highlight: str = "") -> str:
+        """Brief, professional 3-4 sentence application e-mail.
+
+        When *highlight* is non-empty (extracted from this specific job's
+        description) the middle sentence references that concrete detail;
+        otherwise a neutral fallback is used so the wording is never wrong.
+        """
         sender = self.settings.sender_name or "the sender"
-        if cover_letter_attached:
+        if highlight:
+            if cover_letter_attached:
+                middle = (", and the attached cover letter expands on the "
+                          f"fit - particularly around {highlight}")
+            else:
+                middle = (f", and I believe that background fits what this "
+                          f"role centres on - {highlight}")
+        elif cover_letter_attached:
             middle = (", and a tailored cover letter is attached as well. "
                       "I believe it maps closely to what your team needs")
         else:
@@ -73,9 +86,13 @@ class EmailDispatcher:
                          cover_letter_path: Optional[Path]) -> str:
         """Dispatch one application; returns ``"SENT"`` or ``"DRY_RUN"``."""
         subject = f"Application: {listing.role_title} - {self.settings.sender_name}"
+        highlight = extract_job_highlight(listing.job_description)
+        if highlight:
+            log.info("JD highlight for %s: %s", listing.company, highlight)
         body = self.build_email_body(
             listing.role_title, listing.company,
-            cover_letter_attached=cover_letter_path is not None)
+            cover_letter_attached=cover_letter_path is not None,
+            highlight=highlight)
         attachments = [resume_path] + ([cover_letter_path] if cover_letter_path else [])
 
         if not self.live_mode:

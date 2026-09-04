@@ -178,3 +178,112 @@ def dedup_key(company: str, role_title: str, email: str) -> str:
            f"{(role_title or '').strip().lower()}|"
            f"{(email or '').strip().lower()}")
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+# --------------------------------------------------------------------------
+# Per-job highlight extraction
+# --------------------------------------------------------------------------
+
+#: Named tools/software are the strongest signal of a concrete, mentionable
+#: JD detail (what the day-to-day work actually touches).
+_HIGHLIGHT_TOOLS = (
+    "excel", "sql", "power bi", "powerbi", "tableau", "salesforce",
+    "zendesk", "sap", "quickbooks", "python", "google sheets",
+    "google workspace", "microsoft office", "ms office", "oracle",
+    "crm", "erp", "netsuite", "hubspot", "servicenow", "jira",
+    "pivot table", "pivottable", "macros", "vlookup",
+    "dashboard", "spreadsheet", "reporting tool",
+)
+
+#: Duty verbs mark sentences that describe actual work, not requirements.
+_HIGHLIGHT_DUTY_VERBS = (
+    "prepare", "reconcile", "analy", "report", "maintain", "manage",
+    "process", "monitor", "support", "create", "build", "develop",
+    "respond", "resolve", "handle", "assist", "track", "audit",
+    "compile", "update", "coordinate", "enter", "review", "clean",
+    "communicate", "collaborate", "ensure", "perform", "produce",
+)
+
+#: HR/lorem boilerplate that must never become the highlight.
+_HIGHLIGHT_BOILERPLATE = (
+    "equal opportunity", "affirmative action", "benefit", "insurance",
+    "401(k)", "paid time off", "pto", "vacation", "about us",
+    "who we are", "our mission", "apply now", "click", "drug",
+    "background check", "e-verify", "accommodation", "salary",
+    "compensation", "we offer", "perks", "referral", "how to apply",
+)
+
+_HIGHLIGHT_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9])")
+
+#: Leading filler stripped so the phrase reads naturally mid-sentence.
+_HIGHLIGHT_LEAD_RE = re.compile(
+    r"^(?:[-\u2022*o\d]+[.)\]:]*\s+)*"          # bullets / list markers
+    r"(?:you(?:r)?\s+(?:will|would|are\s+to)\s+|"
+    r"the\s+(?:ideal|successful|right)\s+candidate\s+(?:will|should|must)\s+|"
+    r"the\s+[a-z][a-z\s]{0,40}?\s+(?:will|would)\s+|"   # "the clerk will ..."
+    r"we\s+are\s+(?:looking|seeking)(?:\s+for\s+someone)?\s+(?:to|who\s+will)\s+|"
+    r"(?:key\s+)?(?:responsibilities|duties|essential\s+functions)\s*"
+    r"(?:include|are|:)?\s*)",
+    flags=re.IGNORECASE,
+)
+
+
+def _highlight_sentence_score(sentence: str) -> int:
+    """Specificity score for one JD sentence (negative == boilerplate)."""
+    low = sentence.lower()
+    if any(marker in low for marker in _HIGHLIGHT_BOILERPLATE):
+        return -1
+    words = len(sentence.split())
+    if words < 5 or words > 60:     # too thin or too rambling to quote
+        return 0
+    score = 0
+    if any(tool in low for tool in _HIGHLIGHT_TOOLS):
+        score += 4
+    if re.search(r"\d", sentence):  # any numeric detail (%, $, counts)
+        score += 3
+    if re.search(r"\d+\s*%|\$|kpi|sla|metric|target", low):
+        score += 1
+    score += sum(2 for verb in _HIGHLIGHT_DUTY_VERBS if verb in low)
+    if 8 <= words <= 35:            # information-dense sweet spot
+        score += 1
+    return score
+
+
+def _highlight_phrase(sentence: str, max_words: int = 18) -> str:
+    """Trim one scored sentence into a phrase that reads mid-sentence."""
+    phrase = sentence.strip().rstrip(".!?;:")
+    phrase = _HIGHLIGHT_LEAD_RE.sub("", phrase)
+    words = phrase.split()
+    if len(words) > max_words:
+        phrase = " ".join(words[:max_words]).rstrip(",;:-")
+    if phrase and phrase[:1].isupper() and not phrase.split()[0].isupper():
+        phrase = phrase[0].lower() + phrase[1:]
+    return phrase
+
+
+def extract_job_highlight(jd_text: str) -> str:
+    """Pull the single most concrete, mention-worthy detail from a job ad.
+
+    Scores every sentence for specificity (named tools, metrics, duty
+    verbs), suppresses HR boilerplate, and returns a short phrase that can
+    be dropped into an e-mail or cover-letter sentence, e.g.
+    ``"preparing monthly financial reports using Excel and Power BI"``.
+    Returns ``""`` when the JD is too thin to say anything specific - the
+    caller then falls back to its neutral wording.
+    """
+    text = strip_html(jd_text or "")
+    if not text:
+        return ""
+    best, best_score = "", 0
+    for sentence in _HIGHLIGHT_SENTENCE_SPLIT_RE.split(text):
+        score = _highlight_sentence_score(sentence)
+        if score > best_score:      # earliest highest-scoring sentence wins
+            best, best_score = sentence, score
+    if best_score < 2:
+        return ""
+    return _highlight_phrase(best)
+    """Stable SHA-256 key identifying a (company, role, recipient) triple."""
+    raw = (f"{(company or '').strip().lower()}|"
+           f"{(role_title or '').strip().lower()}|"
+           f"{(email or '').strip().lower()}")
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()

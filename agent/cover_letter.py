@@ -27,7 +27,7 @@ from reportlab.lib.units import inch
 from reportlab.platypus import BaseDocTemplate, Frame, PageTemplate, Paragraph, Spacer
 
 from .config import Settings
-from .textutils import sanitize_filename, tokenize
+from .textutils import extract_job_highlight, sanitize_filename, tokenize
 
 log = logging.getLogger("jobpilot.cover_letter")
 
@@ -77,11 +77,19 @@ class CoverLetterGenerator:
                 evidence.extend((job.get("bullets") or [])[:1])
         evidence_body = " ".join(evidence)
         greeting = f"Dear {company} Hiring Team,"
+        # Per-job hook: quote the concrete detail extracted from THIS job's
+        # description instead of reusing one generic alignment sentence.
+        highlight = extract_job_highlight(jd_text)
+        if highlight:
+            jd_hook = (f"The core of the role - {highlight} - is exactly "
+                       f"where my day-to-day strengths lie.")
+        else:
+            jd_hook = ("The responsibilities described in your posting "
+                       "align directly with my day-to-day strengths.")
         p1 = (f"I am writing to apply for the {role} position at {company}. "
               f"As a {top_skill}, I bring a proven record of delivering "
               f"measurable results in fast-paced, detail-driven environments. "
-              f"The responsibilities described in your posting align directly "
-              f"with my day-to-day strengths.")
+              f"{jd_hook}")
         p2 = (f"{evidence_body} These experiences taught me to pair accuracy "
               f"with speed, to communicate clearly with customers and "
               f"stakeholders, and to keep quality high even under tight "
