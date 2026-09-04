@@ -195,6 +195,45 @@ def _first_apply_link(item: Dict[str, object]) -> str:
     return ""
 
 
+def _jsearch_apply_link(item: Dict[str, object]) -> str:
+    """First usable apply URL from a jsearch record (fail soft).
+
+    jsearch advertises applying through ``job_apply_link`` and a list of
+    ``apply_options[].apply_link`` channels (note the key is ``apply_link``,
+    unlike SerpApi's ``link``, hence the separate scanner). Tolerates missing
+    or malformed values.
+    """
+    direct = item.get("job_apply_link")
+    if direct:
+        return str(direct)
+    for option in item.get("apply_options") or []:
+        if isinstance(option, dict) and option.get("apply_link"):
+            return str(option["apply_link"])
+    return ""
+
+
+def job_listing_from_details(item: Dict[str, object],
+                             source: str = "jsearch") -> Optional[JobListing]:
+    """Map a JSearch ``search`` / ``job-details`` record onto a JobListing.
+
+    Shared by :meth:`JSearchProvider.fetch` and
+    :meth:`JSearchProvider.get_job_details` so the search feed and the
+    ``--job-id`` path normalise identically (same role gate, e-mail ranking,
+    cover-letter detection). Returns None (skipped) when the title is not a
+    target role.
+    """
+    return _parse_listing(
+        raw_title=item.get("job_title", ""),
+        raw_company=item.get("employer_name", ""),
+        raw_jd=item.get("job_description", ""),
+        source=source,
+        url=_jsearch_apply_link(item),
+        location=item.get("job_location", ""),
+        posted_at=str(item.get("job_posted_at_datetime_utc")
+                      or item.get("job_posted_at_timestamp") or ""),
+    )
+
+
 class JobProvider(ABC):
     """Contract for one job data source."""
 
@@ -204,18 +243,24 @@ class JobProvider(ABC):
     def fetch(self) -> List[JobListing]:
         """Return all target-role listings visible at this source."""
 
-    def _get_json(self, url: str) -> Optional[object]:
+    def _get_json(self, url: str,
+                  headers: Optional[Dict[str, str]] = None) -> Optional[object]:
         """GET *url* and parse JSON; failures return None (fail soft).
 
-        Subclasses that must abort the cycle on a specific HTTP status can
-        override :meth:`_check_response` to raise a custom exception (see
-        :class:`AdzunaProvider`, which stops on 429/403).
+        Extra *headers* (API keys, hosts) are merged over the default
+        User-Agent/Accept pair. Subclasses that must abort the cycle on a
+        specific HTTP status can override :meth:`_check_response` to raise a
+        custom exception (see :class:`AdzunaProvider`, which stops on 429/403).
         """
         try:
-            response = requests.get(url, timeout=self.timeout, headers={
+            request_headers = {
                 "User-Agent": "JobPilotAgent/1.0 (+personal job search)",
                 "Accept": "application/json",
-            })
+            }
+            if headers:
+                request_headers.update(headers)
+            response = requests.get(url, timeout=self.timeout,
+                                    headers=request_headers)
             self._check_response(response)
             response.raise_for_status()
             return response.json()
@@ -494,6 +539,103 @@ class SerpApiProvider(JobProvider):
         return listings
 
 
+class JSearchQuotaExceeded(Exception):
+    """Raised when RapidAPI answers 403/429 - quota or rate limit exhausted."""
+
+
+class JSearchProvider(JobProvider):
+    """https://rapidapi.com/jsearchapi-jsearchapi/api/jsearch - jobs API.
+
+    RapidAPI job-search keyed by ``JSEARCH_API_KEY``. Exposes the ``search``
+    endpoint (full, untruncated descriptions -> good application-e-mail
+    discovery) to the normal discovery cycle, and ``job-details`` so a single
+    known ``job_id`` (e.g. pasted from a LinkedIn posting) can be fed through
+    the pipeline via ``python main.py --job-id <id>``.
+
+    Response shape (``payload["data"][]``): ``job_title``, ``employer_name``,
+    ``job_description``, ``job_apply_link``, ``apply_options[].apply_link``,
+    ``job_location`` and ``job_posted_at_datetime_utc``.
+
+    Quota protection: the free RapidAPI tier is limited (commonly ~50
+    requests/day), so each search term costs exactly one request per cycle
+    and a 403/429 answer stops the provider for the rest of the cycle (same
+    pattern as :class:`AdzunaProvider`).
+    """
+
+    name = "jsearch"
+    host = "jsearch.p.rapidapi.com"
+    endpoint = "https://jsearch.p.rapidapi.com/search"
+    details_endpoint = "https://jsearch.p.rapidapi.com/job-details"
+    search_terms = RemotiveProvider.search_terms
+
+    def __init__(self, api_key: str, country: str = "us", timeout: int = 20,
+                 pages: int = 1):
+        self.api_key = api_key
+        self.country = country
+        self.timeout = timeout
+        self.pages = max(1, min(pages, 2))
+
+    # ------------------------------------------------------------------ api
+    def _rapidapi_headers(self) -> Dict[str, str]:
+        """Headers required by the RapidAPI gateway for every jsearch call."""
+        return {
+            "x-rapidapi-key": self.api_key,
+            "x-rapidapi-host": self.host,
+        }
+
+    def _check_response(self, response: requests.Response) -> None:
+        """Quota hook - 403/429 raises :class:`JSearchQuotaExceeded`."""
+        if response.status_code in (403, 429):
+            raise JSearchQuotaExceeded(
+                f"HTTP {response.status_code} from jsearch (RapidAPI) - "
+                "quota or rate limit hit; stopping jsearch for this cycle")
+
+    def get_job_details(self, job_id: str) -> Optional[Dict[str, object]]:
+        """Fetch the enriched record for a single ``job_id`` (job-details).
+
+        Mirrors the ``job-details`` endpoint; returns the first record from
+        ``payload["data"]`` or None when unavailable (fail soft).
+        """
+        query = urlencode({"job_id": job_id, "country": self.country})
+        payload = self._get_json(f"{self.details_endpoint}?{query}",
+                                 headers=self._rapidapi_headers())
+        if not isinstance(payload, dict):
+            return None
+        data = payload.get("data")
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            return data[0]
+        return None
+
+    def fetch(self) -> List[JobListing]:
+        listings: List[JobListing] = []
+        for term in self.search_terms:
+            for page in range(1, self.pages + 1):
+                query = urlencode({
+                    "query": term,
+                    "page": page,
+                    "num_pages": 1,
+                    "country": self.country,
+                })
+                try:
+                    payload = self._get_json(f"{self.endpoint}?{query}",
+                                             headers=self._rapidapi_headers())
+                except JSearchQuotaExceeded as exc:
+                    log.warning("[jsearch] %s", exc)
+                    return listings  # stop spending calls this cycle
+                if not isinstance(payload, dict):
+                    break
+                data = payload.get("data")
+                if not isinstance(data, list):
+                    break
+                for item in data:
+                    if not isinstance(item, dict):
+                        continue
+                    listing = job_listing_from_details(item, source=self.name)
+                    if listing:
+                        listings.append(listing)
+        return listings
+
+
 class FixtureProvider(JobProvider):
     """Offline listings from fixtures/jobs.json (ENABLE_FIXTURES=true).
 
@@ -559,6 +701,20 @@ class DiscoveryEngine:
             ))
         else:
             log.info("SerpApi provider disabled - set SERPAPI_API_KEY in "
+                     ".env to enable it.")
+        if settings.jsearch_api_key and settings.jsearch_discovery:
+            self.providers.append(JSearchProvider(
+                api_key=settings.jsearch_api_key,
+                country=settings.jsearch_country,
+                timeout=settings.request_timeout,
+            ))
+        elif settings.jsearch_api_key:
+            log.info("JSearch discovery disabled - the /search endpoint is "
+                     "not part of the current RapidAPI subscription (set "
+                     "JSEARCH_DISCOVERY_ENABLED=true when it is); the "
+                     "--job-id mode still works.")
+        else:
+            log.info("JSearch provider disabled - set JSEARCH_API_KEY in "
                      ".env to enable it.")
         if settings.enable_fixtures:
             self.providers.append(FixtureProvider(timeout=settings.request_timeout))

@@ -19,7 +19,8 @@ from typing import Dict, Optional
 
 from .config import Settings
 from .cover_letter import CoverLetterGenerator
-from .discovery import DiscoveryEngine, JobListing
+from .discovery import (DiscoveryEngine, JSearchProvider, JobListing,
+                        job_listing_from_details)
 from .dispatcher import EmailDispatcher
 from .matcher import MatchResult, ResumeMatcher
 from .resume_generator import ATSResumeGenerator
@@ -182,3 +183,61 @@ def process_listing_safe(listing: JobListing, settings: Settings,
                 "Failed", notes=str(exc)[:200]))
         except Exception:
             log.exception("Could not record failure row in tracker")
+
+
+def run_single_job(settings: Settings, job_id: str) -> Optional[str]:
+    """Fetch one specific JSearch ``job_id`` and run Steps 2-6 on it.
+
+    Bridges the ``job-details`` endpoint into the normal pipeline: the
+    enriched record is normalised into a :class:`JobListing` (via
+    ``job_listing_from_details``) and processed exactly like a discovered
+    listing - match, resume generation, dispatch, tracker. This is the
+    engine behind ``python main.py --job-id <id>``.
+
+    Returns the outcome string ("processed"/"skipped"/"duplicate"/"no-email"/
+    "failed") or None when the job cannot be fetched or is not a target role.
+    """
+    settings.ensure_dirs()
+    if not settings.jsearch_api_key:
+        log.error("JSEARCH_API_KEY is not set in .env - cannot fetch job %s",
+                  job_id)
+        return None
+
+    tracker = Tracker(settings.tracker_path)
+    tracker.ensure()
+    matcher = ResumeMatcher(settings)
+    generator = ATSResumeGenerator(settings)
+    letters = CoverLetterGenerator(settings)
+    dispatcher = EmailDispatcher(settings)
+
+    provider = JSearchProvider(api_key=settings.jsearch_api_key,
+                               country=settings.jsearch_country,
+                               timeout=settings.request_timeout)
+    details = provider.get_job_details(job_id)
+    listing = job_listing_from_details(details) if details else None
+    if listing is None:
+        log.error("JSearch job-details returned no usable record for job_id "
+                  "%s (or the title is not a target role)", job_id)
+        return None
+
+    if listing.dedup_key() in tracker.known_keys():
+        log.info("Job %s already recorded in the tracker - skipping (dedup).",
+                 job_id)
+        return "duplicate"
+
+    if not listing.application_email:
+        log.info("Job %s has no application e-mail in its details - nothing "
+                 "to dispatch (apply manually via: %s)",
+                 job_id, listing.url or "the provider site")
+        return "no-email"
+
+    log.info("Processing single job: %s @ %s [%s] (cover letter: %s)",
+             listing.role_title, listing.company, listing.source,
+             "required" if listing.cover_letter_required else "not required")
+    try:
+        ok = process_listing(listing, settings, matcher, generator, letters,
+                             dispatcher, tracker)
+    except Exception as exc:
+        log.exception("Failed processing single job %s: %s", job_id, exc)
+        return "failed"
+    return "processed" if ok else "skipped"

@@ -84,6 +84,10 @@ class Settings:
     serpapi_api_key: str = ""
     serpapi_engine: str = "google_jobs"
     serpapi_min_interval_hours: int = 12
+    # --- JSearch (RapidAPI) -------------------------------------------------
+    jsearch_api_key: str = ""
+    jsearch_country: str = "us"
+    jsearch_discovery: bool = False
     # --- paths ----------------------------------------------------------
     project_root: Path = PROJECT_ROOT
     resumes_dir: Path = PROJECT_ROOT / "resumes"
@@ -121,6 +125,10 @@ class Settings:
             serpapi_engine=(os.getenv("SERPAPI_ENGINE", "google_jobs").strip()
                             or "google_jobs"),
             serpapi_min_interval_hours=_env_int("SERPAPI_MIN_INTERVAL_HOURS", 12),
+            jsearch_api_key=os.getenv("JSEARCH_API_KEY", "").strip(),
+            jsearch_country=(os.getenv("JSEARCH_COUNTRY", "us").strip().lower()
+                             or "us"),
+            jsearch_discovery=_env_bool("JSEARCH_DISCOVERY_ENABLED", False),
         )
 
     def validate(self) -> List[str]:

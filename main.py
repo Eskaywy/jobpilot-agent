@@ -21,7 +21,7 @@ import schedule
 
 from agent.config import Settings
 from agent.logger import get_logger
-from agent.pipeline import run_pipeline
+from agent.pipeline import run_pipeline, run_single_job
 
 log = get_logger("jobpilot.main")
 
@@ -39,6 +39,9 @@ def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(description="JobPilot application agent")
     parser.add_argument("--once", action="store_true",
                         help="run a single pipeline cycle and exit")
+    parser.add_argument("--job-id", type=str, default=None,
+                        help="fetch one specific jsearch job_id (RapidAPI) "
+                             "and run Steps 2-6 on it, then exit")
     parser.add_argument("--interval", type=int, default=None,
                         help="cycle interval override in minutes (default: "
                              "CYCLE_INTERVAL_MINUTES from .env, spec = 60)")
@@ -47,6 +50,10 @@ def main(argv: Optional[list] = None) -> int:
     settings = Settings.from_env()
     settings.ensure_dirs()
     interval = args.interval or settings.cycle_interval_minutes
+
+    if args.job_id:
+        run_single_job(settings, args.job_id)
+        return 0
 
     if args.once:
         run_pipeline(settings)

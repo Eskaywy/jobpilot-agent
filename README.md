@@ -122,6 +122,9 @@ the row) if the workbook is locked.
 * **Agent: Run Once Now** - single cycle for testing (`python main.py --once`).
 * Offline rehearsal: set `ENABLE_FIXTURES=true` in `.env` to process the
   three demo listings in `fixtures/jobs.json` end-to-end (still DRY_RUN).
+* **Single known job**: `python main.py --job-id JOB_ID` fetches one posting's
+   details from the JSearch (RapidAPI) API and runs Steps 2-6 on it. Requires
+   `JSEARCH_API_KEY` (and optionally `JSEARCH_COUNTRY`) in `.env`.
 
 ## The 90% Threshold - How It Is Scored
 
@@ -152,6 +155,11 @@ recorded in `tracker.xlsx` so every gate decision is auditable.
   only via compliant APIs. Fixtures provide offline testing.
 * **Quota protection is built in**: Adzuna fetches 1 page per search term
   per cycle (~144 calls/day on hourly cycles vs the ~250/day free quota)
+* **JSearch** (RapidAPI, key in `JSEARCH_API_KEY`) backs `python main.py
+   --job-id <id>`, which fetches one posting's full details and runs Steps
+   2-6 on it. Discovery via its `/search` endpoint is opt-in
+   (`JSEARCH_DISCOVERY_ENABLED=true`) because not every subscription
+   includes it; the provider fail-softs and stops on RapidAPI 403/429.
   and hard-stops for the cycle on HTTP 429/403; SerpApi is interval-gated
   by `logs/serpapi_last_run.txt`.
 * **Watchlist mode**: target-role listings that contain no application
