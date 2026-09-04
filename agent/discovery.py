@@ -181,14 +181,30 @@ class JobProvider(ABC):
 
 
 class ArbeitnowProvider(JobProvider):
-    """https://arbeitnow.com/api - free, keyless, permissive licence."""
+    """https://www.arbeitnow.com/api/job-board-api - free, keyless, permissive.
+
+    Mirrors ``curl --location 'https://www.arbeitnow.com/api/job-board-api'``
+    (requests follows redirects by default, the same behaviour as curl -L).
+
+    API facts (verified against the live endpoint):
+    * serves ~175 freshly-posted jobs per page; ``?search=`` is IGNORED
+      (always returns the newest global feed, mostly German tech roles);
+    * paginates via ``links.next`` (there is no ``meta.url``);
+    * descriptions are long HTML but almost never contain an application
+      e-mail (applications go through their site), so most hits land in the
+      watchlist unless the JD text really includes an e-mail.
+
+    Because the global feed is dominated by roles outside the 5 targets, the
+    provider walks up to ``pages`` pages per cycle so target-role titles get
+    a chance to surface, capped to keep API usage polite.
+    """
 
     name = "arbeitnow"
     endpoint = "https://www.arbeitnow.com/api/job-board-api"
 
-    def __init__(self, timeout: int = 20, pages: int = 2):
+    def __init__(self, timeout: int = 20, pages: int = 4):
         self.timeout = timeout
-        self.pages = pages  # paginated cursor API
+        self.pages = max(1, min(pages, 8))  # ~175 jobs/page
 
     def fetch(self) -> List[JobListing]:
         listings: List[JobListing] = []
@@ -211,7 +227,7 @@ class ArbeitnowProvider(JobProvider):
                 )
                 if parsed:
                     listings.append(parsed)
-            url = payload.get("meta", {}).get("url") or None
+            url = (payload.get("links") or {}).get("next") or None
         return listings
 
 
