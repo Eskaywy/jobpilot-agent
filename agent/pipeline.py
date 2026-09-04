@@ -74,8 +74,14 @@ def process_listing(listing: JobListing, settings: Settings,
         if match.missing_keywords:
             notes += (". Gaps: "
                       + ", ".join(match.missing_keywords[:5]))
-        tracker.append(build_tracker_row(listing, match, None, None,
-                                         "Skipped (Low Match)", notes))
+        try:
+            tracker.append(build_tracker_row(listing, match, None, None,
+                                             "Skipped (Low Match)", notes))
+        except Exception as exc:
+            # A locked/broken workbook must not turn a routine low-match
+            # skip into a spurious failure - fail soft, log, and move on.
+            log.warning("Could not record low-match skip for %s @ %s: %s",
+                        listing.role_title, listing.company, exc)
         log.info("Skipped '%s' @ %s - ATS %.1f%% below %.0f%% apply "
                  "minimum", listing.role_title, listing.company,
                  match.ats_match_score * 100, min_score * 100)

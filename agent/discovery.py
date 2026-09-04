@@ -527,12 +527,21 @@ class DiscoveryEngine:
                     # the tracker as a watchlist entry (deduped forever) so
                     # nothing valuable is silently dropped.
                     if self.tracker is not None:
-                        self.tracker.append(_watchlist_row(listing))
-                        log.info("Watchlist: '%s' @ %s [%s] - no application "
-                                 "email; saved with apply URL (%d this cycle)",
-                                 listing.role_title, listing.company,
-                                 listing.source, self._watch_count + 1)
-                        self._watch_count += 1
+                        try:
+                            self.tracker.append(_watchlist_row(listing))
+                        except Exception as exc:
+                            # A locked/broken workbook must not abort the
+                            # cycle - fail soft, log, and move on.
+                            log.warning("Could not watchlist '%s' @ %s "
+                                        "(%s) - row skipped",
+                                        listing.role_title, listing.company, exc)
+                        else:
+                            log.info("Watchlist: '%s' @ %s [%s] - no "
+                                     "application email; saved with apply "
+                                     "URL (%d this cycle)",
+                                     listing.role_title, listing.company,
+                                     listing.source, self._watch_count + 1)
+                            self._watch_count += 1
                     else:
                         log.info("Skipping '%s' @ %s - no application email "
                                  "found (no tracker to watchlist it)",
