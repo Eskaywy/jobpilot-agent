@@ -25,7 +25,8 @@ from urllib.parse import urlencode
 import requests
 
 from .config import PROJECT_ROOT, TARGET_ROLES, Settings
-from .textutils import (find_emails, rank_emails_for_company, strip_html)
+from .textutils import (find_emails, looks_remote, rank_emails_for_company,
+                        strip_html)
 
 log = logging.getLogger("jobpilot.discovery")
 
@@ -720,10 +721,16 @@ class DiscoveryEngine:
             self.providers.append(FixtureProvider(timeout=settings.request_timeout))
 
     def find_new_listings(self) -> List[JobListing]:
-        """Return unseen target-role listings (dedup across every cycle)."""
+        """Return unseen target-role listings (dedup across every cycle).
+
+        When ``REMOTE_ONLY`` is enabled (the default), non-remote postings
+        are dropped here - before the application-e-mail check - so nothing
+        non-remote is ever applied to or even watchlisted.
+        """
         seen_keys = self.tracker.known_keys() if self.tracker else set()
         aggregated: List[JobListing] = []
         seen_in_run = set()
+        non_remote_count = 0
         for provider in self.providers:
             try:
                 fetched = provider.fetch()
@@ -735,6 +742,14 @@ class DiscoveryEngine:
             for listing in fetched:
                 key = listing.dedup_key()
                 if key in seen_keys or key in seen_in_run:
+                    continue
+                if self.settings.remote_only and not looks_remote(
+                        listing.role_title, listing.location,
+                        listing.job_description):
+                    non_remote_count += 1
+                    log.debug("Non-remote: '%s' @ %s [%s] (location: %s)",
+                              listing.role_title, listing.company,
+                              listing.source, listing.location or "n/a")
                     continue
                 if not listing.application_email:
                     # No e-mail -> cannot dispatch automatically. Save it to
@@ -765,6 +780,12 @@ class DiscoveryEngine:
                 seen_in_run.add(key)
                 aggregated.append(listing)
         self.last_watch_count = self._watch_count
-        log.info("Discovery complete: %d new actionable listings, "
-                 "%d added to watchlist", len(aggregated), self._watch_count)
+        if self.settings.remote_only:
+            log.info("Discovery complete: %d new actionable listings, "
+                     "%d added to watchlist, %d skipped (non-remote)",
+                     len(aggregated), self._watch_count, non_remote_count)
+        else:
+            log.info("Discovery complete: %d new actionable listings, "
+                     "%d added to watchlist", len(aggregated),
+                     self._watch_count)
         return aggregated

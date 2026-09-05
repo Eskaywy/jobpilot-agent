@@ -76,6 +76,7 @@ class Settings:
     cycle_interval_minutes: int = 60
     request_timeout: int = 20
     enable_fixtures: bool = False
+    remote_only: bool = True
     # --- Adzuna API -------------------------------------------------------
     adzuna_app_id: str = ""
     adzuna_app_key: str = ""
@@ -117,6 +118,7 @@ class Settings:
             cycle_interval_minutes=_env_int("CYCLE_INTERVAL_MINUTES", 60),
             request_timeout=_env_int("REQUEST_TIMEOUT", 20),
             enable_fixtures=_env_bool_flag("ENABLE_FIXTURES", False),
+            remote_only=_env_bool("REMOTE_ONLY", True),
             adzuna_app_id=os.getenv("ADZUNA_APP_ID", "").strip(),
             adzuna_app_key=os.getenv("ADZUNA_APP_KEY", "").strip(),
             adzuna_country=(os.getenv("ADZUNA_COUNTRY", "us").strip().lower()

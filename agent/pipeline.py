@@ -25,7 +25,7 @@ from .dispatcher import EmailDispatcher
 from .matcher import MatchResult, ResumeMatcher
 from .resume_generator import ATSResumeGenerator
 from .tracker import Tracker
-from .textutils import dedup_key
+from .textutils import dedup_key, looks_remote
 
 log = logging.getLogger("jobpilot.pipeline")
 
@@ -224,6 +224,13 @@ def run_single_job(settings: Settings, job_id: str) -> Optional[str]:
         log.info("Job %s already recorded in the tracker - skipping (dedup).",
                  job_id)
         return "duplicate"
+
+    if settings.remote_only and not looks_remote(
+            listing.role_title, listing.location, listing.job_description):
+        log.info("Job %s is not a remote posting - REMOTE_ONLY is enabled, "
+                 "so it will not be applied to (apply manually if wanted: %s)",
+                 job_id, listing.url or "the provider site")
+        return "not-remote"
 
     if not listing.application_email:
         log.info("Job %s has no application e-mail in its details - nothing "

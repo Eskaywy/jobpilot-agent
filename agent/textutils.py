@@ -282,6 +282,83 @@ def extract_job_highlight(jd_text: str) -> str:
     if best_score < 2:
         return ""
     return _highlight_phrase(best)
+
+
+# --------------------------------------------------------------------------
+# Remote-work detection
+# --------------------------------------------------------------------------
+
+#: Strong signals that the posting is a genuine remote / work-from-home role.
+_REMOTE_POSITIVE_RE = re.compile(
+    r"\bremote\b"
+    r"|\bwork(?:ing|s)?\s+(?:from|at)\s+home\b"
+    r"|\bwork\s+from\s+anywhere\b"
+    r"|\bwfh\b"
+    r"|\btelecommut(?:e|ing|ion)\b"
+    r"|\bfully\s+remote\b"
+    r"|\b100%\s+remote\b"
+    r"|\bremote-?friendly\b"
+    r"|\bremote\s+(?:position|role|job|opportunity|candidate|work|team)\b"
+    r"|\banywhere\s+in\s+the\s+(?:us|usa|world)\b"
+    r"|\bdistributed\s+team\b",
+    flags=re.IGNORECASE,
+)
+
+#: Work-arrangement signals that veto a listing when they appear in the
+#: title or the location (authoritative short fields - e.g. "Hybrid",
+#: "Austin, TX (On-site)", "New York, NY").
+_REMOTE_TITLE_LOCATION_VETO_RE = re.compile(
+    r"\bhybrid\b"
+    r"|\bon-?\s?site\b"
+    r"|\bin-?\s?office\b"
+    r"|\bin-?\s?person\b",
+    flags=re.IGNORECASE,
+)
+
+#: Phrases that explicitly rule out remote work when found in the JD body
+#: (a lone "on-site" inside a long JD may describe one duty, so it does not
+#: veto by itself - only explicit exclusions do).
+_REMOTE_JD_VETO_RE = re.compile(
+    r"\bnot\s+(?:a\s+)?remote\b"
+    r"|\bno\s+remote\b"
+    r"|\bnon-?remote\b"
+    r"|\bremote\s+(?:work\s+)?not\s+(?:available|offered|permitted)\b"
+    r"|\b(?:on-?\s?site|in-?\s?person)\s+only\b"
+    r"|\bmust\s+(?:be\s+)?(?:work|worked|working|based)\s+on-?\s?site\b"
+    r"|\breturn\s+to\s+(?:the\s+)?office\b"
+    r"|\bmust\s+(?:be\s+)?(?:located|live|reside)\b"
+    r"|\bmust\s+be\s+(?:based|local)\b"
+    r"|\bwilling(?:ness)?\s+to\s+relocat(?:e|ion)\b"
+    r"|\bability\s+to\s+relocat(?:e|ion)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def looks_remote(title: str, location: str, jd_text: str) -> bool:
+    """Heuristically decide whether a posting is a genuine remote role.
+
+    Requires a positive remote signal anywhere in the title, location or
+    description, and no veto signal: work-arrangement words (hybrid /
+    on-site / in-office / in-person) in the short authoritative fields, or
+    an explicit exclusion in the JD body ("not remote", "on-site only",
+    "return to office", relocation requirements ...).
+
+    This is deliberately conservative - a false "remote" costs an outbound
+    e-mail, a false "not remote" only skips one posting.
+    """
+    title = (title or "").strip()
+    location = (location or "").strip()
+    jd = strip_html(jd_text or "")
+    if _REMOTE_TITLE_LOCATION_VETO_RE.search(title) \
+            or _REMOTE_TITLE_LOCATION_VETO_RE.search(location):
+        return False
+    if _REMOTE_JD_VETO_RE.search(jd):
+        return False
+    if _REMOTE_POSITIVE_RE.search(title) or _REMOTE_POSITIVE_RE.search(location):
+        return True
+    # JD body: only scan the meaningful first chunk for the positive signal
+    # so a buried, unrelated "remote" mention cannot qualify a posting.
+    return bool(_REMOTE_POSITIVE_RE.search(jd[:4000]))
     """Stable SHA-256 key identifying a (company, role, recipient) triple."""
     raw = (f"{(company or '').strip().lower()}|"
            f"{(role_title or '').strip().lower()}|"

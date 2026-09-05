@@ -167,6 +167,14 @@ recorded in `tracker.xlsx` so every gate decision is auditable.
   status **Watchlist** and their apply URL in the *Job URL* column, so you
   can apply manually. They are recorded once (SHA-256 dedup) and never
   block future e-mailable applications from the same board.
+* **Remote-only is on by default** (`REMOTE_ONLY=true`): every listing is
+   screened at discovery time for genuine remote signals (remote, work
+   from home, WFH, telecommute, distributed team) in the title, location
+   or JD body, while hybrid / on-site / in-person postings and explicit
+   exclusions ("not remote", "on-site only", "return to office",
+   relocation requirements) are dropped - never applied to, never
+   watchlisted. The cycle summary logs how many were skipped
+   (non-remote). Set `REMOTE_ONLY=false` in `.env` to disable.
 * Listings whose JDs do not contain an application e-mail are skipped
   (logged) rather than guessed.
 * Auto-applying is subject to each board's terms and local law; DRY_RUN
